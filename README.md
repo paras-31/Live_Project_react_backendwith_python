@@ -189,8 +189,6 @@ Live_Project_react_backendwith_python/
 ## Contributors
 
 - [@paras-31](https://github.com/paras-31)
-- Abhishek Arya
-- Sandeep Kajal
 
 ---
 
