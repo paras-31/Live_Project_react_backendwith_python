@@ -16,20 +16,21 @@ jobs:
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          # Write public-server.pem (auth key)
           printf '%s\n' "${{ secrets.PUBLIC_SERVER }}" > public-server.pem
-          chmod 700 public-server.pem
+          chmod 600 public-server.pem
 
-          # Write private-server.pem (file to copy)
           printf '%s\n' "${{ secrets.PRIVATE_SERVER }}" > private-server.pem
-          chmod 700 private-server.pem
+          chmod 600 private-server.pem
 
-          # Validate the auth key
           ssh-keygen -l -f public-server.pem
 
       - name: Add EC2 to known hosts
         run: |
           ssh-keyscan -H ec2-44-220-83-30.compute-1.amazonaws.com >> ~/.ssh/known_hosts
+
+      - name: Remove old file on EC2 if exists
+        run: |
+          ssh -i public-server.pem ec2-user@ec2-44-220-83-30.compute-1.amazonaws.com "rm -f ~/private-server.pem"
 
       - name: SCP private-server.pem to EC2
         run: |
