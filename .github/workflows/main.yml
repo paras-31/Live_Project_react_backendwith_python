@@ -26,44 +26,20 @@ jobs:
         run: |
           ssh-keyscan -H ec2-44-220-83-30.compute-1.amazonaws.com >> ~/.ssh/known_hosts
 
-      - name: Setup SSH config for ProxyJump
+      - name: Deploy to private EC2 via ProxyJump
         run: |
-          cat > ~/.ssh/config << 'SSHCONFIG'
-          Host public-ec2
-            HostName ec2-44-220-83-30.compute-1.amazonaws.com
-            User ec2-user
-            IdentityFile ~/.ssh/public-server.pem
-            StrictHostKeyChecking no
-
-          Host private-ec2
-            HostName 10.0.142.57
-            User ec2-user
-            IdentityFile ~/.ssh/private-server.pem
-            ProxyJump public-ec2
-            StrictHostKeyChecking no
-          SSHCONFIG
-          chmod 600 ~/.ssh/config
-
-      - name: Add private EC2 to known hosts via jump
-        run: |
-          ssh-keyscan -H 10.0.142.57 -p 22 | ssh public-ec2 'cat >> ~/.ssh/known_hosts' || true
-          ssh -J public-ec2 -o StrictHostKeyChecking=no ec2-user@10.0.142.57 "echo '✅ Connected to private EC2'"
-
-      - name: Pull latest code on private EC2
-        run: |
-          ssh private-ec2 << 'ENDSSH'
+          ssh -o StrictHostKeyChecking=no \
+              -o ProxyCommand="ssh -o StrictHostKeyChecking=no -i ~/.ssh/public-server.pem -W %h:%p ec2-user@ec2-44-220-83-30.compute-1.amazonaws.com" \
+              -i ~/.ssh/private-server.pem \
+              ec2-user@10.0.142.57 << 'ENDSSH'
             set -e
-            echo "📂 Navigating to project..."
-            cd /home/ec2-user/Live_Project_react_backendwith_python
+            echo "✅ Connected to private EC2"
+            echo "Hostname: $(hostname)"
+
             echo "📥 Pulling latest code..."
+            cd /home/ec2-user/Live_Project_react_backendwith_python
             git pull origin main
-            echo "✅ Code updated"
-          ENDSSH
 
-      - name: Build & Run Frontend Docker
-        run: |
-          ssh private-ec2 << 'ENDSSH'
-            set -e
             echo "🚀 Building Frontend..."
             cd /home/ec2-user/Live_Project_react_backendwith_python/Live-project-forntend_Docker
             docker build -t frontend-app .
@@ -71,12 +47,7 @@ jobs:
             docker rm frontend || true
             docker run -d --name frontend -p 3000:3000 frontend-app
             echo "✅ Frontend running"
-          ENDSSH
 
-      - name: Build & Run Backend Docker
-        run: |
-          ssh private-ec2 << 'ENDSSH'
-            set -e
             echo "🚀 Building Backend..."
             cd /home/ec2-user/Live_Project_react_backendwith_python/Live-project-backend_pyhton_doc
             docker build -t backend-app .
@@ -84,8 +55,7 @@ jobs:
             docker rm backend || true
             docker run -d --name backend -p 8000:8000 backend-app
             echo "✅ Backend running"
-          ENDSSH
 
-      - name: Verify containers running
-        run: |
-          ssh private-ec2 "docker ps"
+            echo "🐳 Running containers:"
+            docker ps
+          ENDSSH
