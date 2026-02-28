@@ -1,23 +1,16 @@
-# Deploy to private EC2 via public EC2 (jump host) on push to main
-# Flow: Runner -> SSH to public EC2 -> SCP key/code to private EC2 -> all docker runs on private EC2 only
-
-name: Deploy to Private EC2
+name: Deploy to Private EC2 via Public Jump Host
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      name:
-        description: 'Person to greet (manual run)'
-        default: 'World'
-        required: true
-        type: string
 
 env:
-  PUBLIC_EC2: ec2-user@ec2-44-220-83-30.compute-1.amazonaws.com
-  PRIVATE_EC2_IP: 10.0.142.57
-  ALB_DNS: applb-721266216.us-east-1.elb.amazonaws.com
+  PUBLIC_HOST: ec2-44-220-83-30.compute-1.amazonaws.com
+  PUBLIC_USER: ec2-user
+  PRIVATE_IP: 10.0.142.57
+  PRIVATE_USER: ec2-user
+  APP_DIR: /home/ec2-user/Live_Project_react_backendwith_python
 
 jobs:
   deploy:
@@ -26,65 +19,92 @@ jobs:
       contents: read
 
     steps:
-      - name: Checkout repository
+      - name: Checkout (optional; not required for remote deploy)
         uses: actions/checkout@v4
 
-      - name: Create SSH key files from secrets
+      - name: Create SSH keys from GitHub Secrets
+        shell: bash
         run: |
-          echo '${{ secrets.PUBLIC_SERVER }}' > public-server.pem
-          echo '${{ secrets.PRIVATE_SERVER }}' > private-server.pem
-          chmod 600 public-server.pem private-server.pem
-
-      - name: Add public EC2 to known hosts
-        run: |
+          set -e
           mkdir -p ~/.ssh
-          ssh-keyscan -H ec2-44-220-83-30.compute-1.amazonaws.com >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      - name: Copy private-server.pem to public EC2
-        run: |
-          scp -i public-server.pem -o StrictHostKeyChecking=no \
-            private-server.pem "$PUBLIC_EC2":~/
+          # Public EC2 key (used to reach jump host)
+          echo "${{ secrets.PUBLIC_SERVER_PEM }}" > ~/.ssh/public-server.pem
+          chmod 600 ~/.ssh/public-server.pem
 
-      - name: Copy frontend and backend code to public EC2
-        run: |
-          scp -i public-server.pem -o StrictHostKeyChecking=no -r \
-            Live-project-forntend_Docker \
-            Live-project-backend_pyhton_docker \
-            "$PUBLIC_EC2":~/
+          # Private EC2 key (used to login to private through jump)
+          echo "${{ secrets.PRIVATE_SERVER_PEM }}" > ~/.ssh/private-server.pem
+          chmod 600 ~/.ssh/private-server.pem
 
-      - name: From public EC2 – add private EC2 to known_hosts and SCP private-server.pem to private EC2
+      - name: Add known_hosts (avoid interactive prompt)
+        shell: bash
         run: |
-          ssh -i public-server.pem -o StrictHostKeyChecking=no "$PUBLIC_EC2" \
-            "ssh-keyscan -H $PRIVATE_EC2_IP >> ~/.ssh/known_hosts 2>/dev/null || true"
-          ssh -i public-server.pem -o StrictHostKeyChecking=no "$PUBLIC_EC2" \
-            "scp -i private-server.pem -o StrictHostKeyChecking=no private-server.pem ec2-user@$PRIVATE_EC2_IP:~/"
+          set -e
+          ssh-keyscan -H "${PUBLIC_HOST}" >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -H "${PRIVATE_IP}"   >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      - name: From public EC2 – SCP frontend and backend code to private EC2
+      - name: Deploy on PRIVATE EC2 (through PUBLIC jump host)
+        shell: bash
         run: |
-          ssh -i public-server.pem -o StrictHostKeyChecking=no "$PUBLIC_EC2" \
-            "scp -i private-server.pem -o StrictHostKeyChecking=no -r \
-              Live-project-forntend_Docker \
-              Live-project-backend_pyhton_docker \
-              ec2-user@$PRIVATE_EC2_IP:~/"
+          set -e
 
-      - name: On private EC2 – build and run backend (no commands run on public EC2)
-        run: |
-          ssh -i public-server.pem -o StrictHostKeyChecking=no "$PUBLIC_EC2" \
-            "ssh -i private-server.pem -o StrictHostKeyChecking=no ec2-user@$PRIVATE_EC2_IP" \
-            'cd Live-project-backend_pyhton_docker && \
-             docker build -t live-backend . && \
-             docker stop live-backend 2>/dev/null || true; \
-             docker rm live-backend 2>/dev/null || true; \
-             docker run -d -p 8000:8000 \
-               -e CORS_ORIGINS="http://'"$ALB_DNS"',https://'"$ALB_DNS"'" \
-               --name live-backend live-backend'
+          # 1) We create an SSH config so ProxyJump uses PUBLIC key,
+          #    and PRIVATE login uses PRIVATE key
+          cat > ~/.ssh/config <<EOF
+          Host jump
+            HostName ${PUBLIC_HOST}
+            User ${PUBLIC_USER}
+            IdentityFile ~/.ssh/public-server.pem
+            StrictHostKeyChecking no
 
-      - name: On private EC2 – build and run frontend (no commands run on public EC2)
-        run: |
-          ssh -i public-server.pem -o StrictHostKeyChecking=no "$PUBLIC_EC2" \
-            "ssh -i private-server.pem -o StrictHostKeyChecking=no ec2-user@$PRIVATE_EC2_IP" \
-            'cd Live-project-forntend_Docker && \
-             docker build --build-arg VITE_API_URL=http://'"$ALB_DNS"':8000 -t live-frontend . && \
-             docker stop live-frontend 2>/dev/null || true; \
-             docker rm live-frontend 2>/dev/null || true; \
-             docker run -d -p 80:80 --name live-frontend live-frontend'
+          Host private
+            HostName ${PRIVATE_IP}
+            User ${PRIVATE_USER}
+            IdentityFile ~/.ssh/private-server.pem
+            ProxyJump jump
+            StrictHostKeyChecking no
+          EOF
+
+          chmod 600 ~/.ssh/config
+
+          # 2) Now run everything on PRIVATE only
+          ssh private << 'EOF'
+            set -e
+
+            echo "✅ Connected to PRIVATE:"
+            hostname
+            whoami
+            pwd
+
+            # --- One time requirement: repo must exist on private server ---
+            # If repo not present, clone it once (you can keep it as is)
+            if [ ! -d "/home/ec2-user/Live_Project_react_backendwith_python/.git" ]; then
+              echo "📦 Repo not found on private, cloning..."
+
+              # OPTION A (recommended): Clone using SSH (requires Deploy Key or SSH access)
+              # git clone git@github.com:paras-31/Live_Project_react_backendwith_python.git /home/ec2-user/Live_Project_react_backendwith_python
+
+              # OPTION B: Clone using HTTPS with PAT stored on private (not in Actions)
+              # git clone https://github.com/paras-31/Live_Project_react_backendwith_python.git /home/ec2-user/Live_Project_react_backendwith_python
+
+              echo "❌ Repo missing. Please clone it ONCE on private EC2, then rerun pipeline."
+              exit 1
+            fi
+
+            cd /home/ec2-user/Live_Project_react_backendwith_python
+
+            echo "📥 Pull latest from main..."
+            git fetch --all
+            git reset --hard origin/main
+
+            echo "🐳 Building + running docker on PRIVATE..."
+            if command -v docker-compose >/dev/null 2>&1; then
+              docker-compose down
+              docker-compose up -d --build
+            else
+              docker compose down
+              docker compose up -d --build
+            fi
+
+            echo "✅ Deploy finished"
+          EOF
