@@ -46,7 +46,7 @@ jobs:
             docker rm frontend || true
             if docker image inspect frontend-app >/dev/null 2>&1; then docker rmi frontend-app; fi
             docker build -t frontend-app .
-            docker run -d --name frontend -p 3000:3000 frontend-app
+            docker run -d --name frontend -p 80:80 frontend-app
             echo "✅ Frontend running"
 
             echo "🚀 Building Backend..."
