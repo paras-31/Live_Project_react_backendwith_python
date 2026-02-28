@@ -6,4 +6,4 @@
  */
 export const API_BASE_URL =
   (import.meta.env.VITE_API_URL as string) ||
-  (import.meta.env.DEV ? "http://localhost:8000" : "/api");
+  (import.meta.env.DEV ? "http://appalb-721266216.us-east-1.elb.amazonaws.com" : "/api");
