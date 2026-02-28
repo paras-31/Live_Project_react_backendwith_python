@@ -27,9 +27,9 @@ jobs:
           # Validate the auth key
           ssh-keygen -l -f public-server.pem
 
-      # - name: Add EC2 to known hosts
-      #   run: |
-      #     ssh-keyscan -H ec2-44-220-83-30.compute-1.amazonaws.com >> ~/.ssh/known_hosts
+      - name: Add EC2 to known hosts
+        run: |
+          ssh-keyscan -H ec2-44-220-83-30.compute-1.amazonaws.com >> ~/.ssh/known_hosts
 
       - name: SCP private-server.pem to EC2
         run: |
