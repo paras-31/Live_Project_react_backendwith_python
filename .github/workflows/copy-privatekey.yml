@@ -2,8 +2,6 @@ name: SCP private-server.pem to Public EC2
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
 
 jobs:
   scp-pem:
@@ -12,16 +10,22 @@ jobs:
 
     steps:
       - name: Setup SSH keys
+        env:
+          PUBLIC_SERVER: ${{ secrets.PUBLIC_SERVER }}
+          PRIVATE_SERVER: ${{ secrets.PRIVATE_SERVER }}
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          printf '%s\n' "${{ secrets.PUBLIC_SERVER }}" > public-server.pem
+          echo "$PUBLIC_SERVER" > public-server.pem
           chmod 600 public-server.pem
 
-          printf '%s\n' "${{ secrets.PRIVATE_SERVER }}" > private-server.pem
+          echo "$PRIVATE_SERVER" > private-server.pem
           chmod 600 private-server.pem
 
+          # Validate key and check file is not empty
+          wc -l public-server.pem
+          wc -l private-server.pem
           ssh-keygen -l -f public-server.pem
 
       - name: Add EC2 to known hosts
@@ -38,4 +42,4 @@ jobs:
 
       - name: Verify file copied
         run: |
-          ssh -i public-server.pem ec2-user@ec2-44-220-83-30.compute-1.amazonaws.com "ls -la ~/private-server.pem"
+          ssh -i public-server.pem ec2-user@ec2-44-220-83-30.compute-1.amazonaws.com "wc -l ~/private-server.pem && cat ~/private-server.pem | head -1 && cat ~/private-server.pem | tail -1"
