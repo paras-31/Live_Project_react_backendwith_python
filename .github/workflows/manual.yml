@@ -26,12 +26,12 @@ jobs:
         run: |
           ssh-keyscan -H ec2-44-220-83-30.compute-1.amazonaws.com >> ~/.ssh/known_hosts
       
-          - name: Setup public-server.pem (auth key)
-            run: |
-              mkdir -p ~/.ssh
-              echo "${{ secrets.PUBLIC_SERVER }}" > ~/.ssh/public-server.pem
-              chmod 400 ~/.ssh/public-server.pem
-              ssh-keygen -l -f ~/.ssh/public-server.pem  # validates the key
+      - name: Setup public-server.pem (auth key)
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PUBLIC_SERVER }}" > ~/.ssh/public-server.pem
+          chmod 400 ~/.ssh/public-server.pem
+          ssh-keygen -l -f ~/.ssh/public-server.pem  # validates the key
 
       - name: SCP private-server.pem to EC2
         run: |
