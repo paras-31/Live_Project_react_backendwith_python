@@ -11,27 +11,25 @@ jobs:
     environment: public-server.pem
 
     steps:
-      - name: Setup public-server.pem (auth key)
+      - name: Setup SSH keys
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.PUBLIC_SERVER }}" > ~/.ssh/public-server.pem
-          chmod 400 ~/.ssh/public-server.pem
+          chmod 700 ~/.ssh
 
-      - name: Setup private-server.pem (file to copy)
-        run: |
-          echo "${{ secrets.PRIVATE_SERVER }}" > /tmp/private-server.pem
-          chmod 400 /tmp/private-server.pem
+          # Write public-server.pem (auth key)
+          printf '%s\n' "${{ secrets.PUBLIC_SERVER }}" > ~/.ssh/public-server.pem
+          chmod 600 ~/.ssh/public-server.pem
+
+          # Write private-server.pem (file to copy)
+          printf '%s\n' "${{ secrets.PRIVATE_SERVER }}" > /tmp/private-server.pem
+          chmod 600 /tmp/private-server.pem
+
+          # Validate the auth key
+          ssh-keygen -l -f ~/.ssh/public-server.pem
 
       - name: Add EC2 to known hosts
         run: |
           ssh-keyscan -H ec2-44-220-83-30.compute-1.amazonaws.com >> ~/.ssh/known_hosts
-      
-      - name: Setup public-server.pem (auth key)
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.PUBLIC_SERVER }}" > ~/.ssh/public-server.pem
-          chmod 400 ~/.ssh/public-server.pem
-          ssh-keygen -l -f ~/.ssh/public-server.pem  # validates the key
 
       - name: SCP private-server.pem to EC2
         run: |
