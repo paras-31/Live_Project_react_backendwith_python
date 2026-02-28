@@ -1,110 +1,35 @@
-name: Deploy to Private EC2 via Public Jump Host
+name: SCP private-server.pem to Public EC2
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
-  workflow_dispatch:
-
-env:
-  PUBLIC_HOST: ec2-44-220-83-30.compute-1.amazonaws.com
-  PUBLIC_USER: ec2-user
-  PRIVATE_IP: 10.0.142.57
-  PRIVATE_USER: ec2-user
-  APP_DIR: /home/ec2-user/Live_Project_react_backendwith_python
 
 jobs:
-  deploy:
+  scp-pem:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    environment: public-server.pem
 
     steps:
-      - name: Checkout (optional; not required for remote deploy)
-        uses: actions/checkout@v4
-
-      - name: Create SSH keys from GitHub Secrets
-        shell: bash
+      - name: Setup public-server.pem (auth key)
         run: |
-          set -e
           mkdir -p ~/.ssh
+          echo "${{ secrets.PUBLIC_SERVER }}" > ~/.ssh/public-server.pem
+          chmod 400 ~/.ssh/public-server.pem
 
-          # Public EC2 key (used to reach jump host)
-          echo "${{ secrets.PUBLIC_SERVER_PEM }}" > ~/.ssh/public-server.pem
-          chmod 600 ~/.ssh/public-server.pem
-
-          # Private EC2 key (used to login to private through jump)
-          echo "${{ secrets.PRIVATE_SERVER_PEM }}" > ~/.ssh/private-server.pem
-          chmod 600 ~/.ssh/private-server.pem
-
-      - name: Add known_hosts (avoid interactive prompt)
-        shell: bash
+      - name: Setup private-server.pem (file to copy)
         run: |
-          set -e
-          ssh-keyscan -H "${PUBLIC_HOST}" >> ~/.ssh/known_hosts 2>/dev/null || true
-          ssh-keyscan -H "${PRIVATE_IP}"   >> ~/.ssh/known_hosts 2>/dev/null || true
+          echo "${{ secrets.PRIVATE_SERVER }}" > /tmp/private-server.pem
+          chmod 400 /tmp/private-server.pem
 
-      - name: Deploy on PRIVATE EC2 (through PUBLIC jump host)
-        shell: bash
+      - name: Add EC2 to known hosts
         run: |
-          set -e
+          ssh-keyscan -H ec2-44-220-83-30.compute-1.amazonaws.com >> ~/.ssh/known_hosts
 
-          # 1) We create an SSH config so ProxyJump uses PUBLIC key,
-          #    and PRIVATE login uses PRIVATE key
-          cat > ~/.ssh/config <<EOF
-          Host jump
-            HostName ${PUBLIC_HOST}
-            User ${PUBLIC_USER}
-            IdentityFile ~/.ssh/public-server.pem
-            StrictHostKeyChecking no
+      - name: SCP private-server.pem to EC2
+        run: |
+          scp -i ~/.ssh/public-server.pem /tmp/private-server.pem ec2-user@ec2-44-220-83-30.compute-1.amazonaws.com:~/
 
-          Host private
-            HostName ${PRIVATE_IP}
-            User ${PRIVATE_USER}
-            IdentityFile ~/.ssh/private-server.pem
-            ProxyJump jump
-            StrictHostKeyChecking no
-          EOF
-
-          chmod 600 ~/.ssh/config
-
-          # 2) Now run everything on PRIVATE only
-          ssh private << 'EOF'
-            set -e
-
-            echo "✅ Connected to PRIVATE:"
-            hostname
-            whoami
-            pwd
-
-            # --- One time requirement: repo must exist on private server ---
-            # If repo not present, clone it once (you can keep it as is)
-            if [ ! -d "/home/ec2-user/Live_Project_react_backendwith_python/.git" ]; then
-              echo "📦 Repo not found on private, cloning..."
-
-              # OPTION A (recommended): Clone using SSH (requires Deploy Key or SSH access)
-              # git clone git@github.com:paras-31/Live_Project_react_backendwith_python.git /home/ec2-user/Live_Project_react_backendwith_python
-
-              # OPTION B: Clone using HTTPS with PAT stored on private (not in Actions)
-              # git clone https://github.com/paras-31/Live_Project_react_backendwith_python.git /home/ec2-user/Live_Project_react_backendwith_python
-
-              echo "❌ Repo missing. Please clone it ONCE on private EC2, then rerun pipeline."
-              exit 1
-            fi
-
-            cd /home/ec2-user/Live_Project_react_backendwith_python
-
-            echo "📥 Pull latest from main..."
-            git fetch --all
-            git reset --hard origin/main
-
-            echo "🐳 Building + running docker on PRIVATE..."
-            if command -v docker-compose >/dev/null 2>&1; then
-              docker-compose down
-              docker-compose up -d --build
-            else
-              docker compose down
-              docker compose up -d --build
-            fi
-
-            echo "✅ Deploy finished"
-          EOF
+      - name: Verify file copied
+        run: |
+          ssh -i ~/.ssh/public-server.pem ec2-user@ec2-44-220-83-30.compute-1.amazonaws.com "ls -la ~/private-server.pem"
