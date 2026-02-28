@@ -116,8 +116,8 @@ Key packages:
 
 ### Connecting Frontend to Backend
 
-- The frontend makes API requests to the backend on `http://localhost:8000/` (configurable).
-- CORS is enabled in the backend to allow requests from React dev servers (ports 5173 and 3000).
+- The frontend makes API requests to the backend (e.g. `http://localhost:8000/` when running locally).
+- CORS is configured in the backend via `CORS_ORIGINS` env var (defaults to localhost:5173 and 3000). When the frontend is served from another host (e.g. an ALB), set `CORS_ORIGINS` to that origin so the backend allows requests.
 - Example usage in frontend code:
   ```js
   axios.post("http://localhost:8000/signup", formData);
@@ -160,6 +160,41 @@ Key packages:
 - **Backend**: Dockerfile in `Live-project-backend_pyhton_docker/`
 - **Frontend**: Dockerfile in `Live-project-forntend_Docker/`
 - Run both containers and access the frontend via `http://localhost` and backend via `http://localhost:8000`
+
+---
+
+## Running the backend when frontend is on an ALB
+
+When the frontend runs on a **private EC2** (or any non-localhost host), update both sides so the browser can reach the backend and CORS allows the frontend origin.
+
+### 1. Backend (CORS)
+
+Set **`CORS_ORIGINS`** to the URL(s) where the frontend is served (what the user’s browser sees):
+
+```bash
+# Example: frontend on same EC2 on port 80
+export CORS_ORIGINS="http://10.0.0.5:80,http://10.0.0.5"
+
+# Or use the EC2 private DNS / IP users actually use
+export CORS_ORIGINS="http://ip-10-0-0-5.region.compute.internal:80"
+```
+
+Run the backend with the env set, or in Docker:
+
+```sh
+docker run -p 8000:8000 -e CORS_ORIGINS="http://<frontend-host>:80" live-backend
+```
+
+### 2. Frontend (API URL)
+
+Set **`VITE_API_URL`** at **build time** to the backend URL the browser will call (e.g. backend’s private IP or hostname and port):
+
+```sh
+cd Live-project-forntend_Docker
+docker build --build-arg VITE_API_URL=http://<backend-ip-or-host>:8000 -t live-frontend .
+```
+
+If backend and frontend are on the **same EC2**, use that machine’s IP/hostname and port 8000 (e.g. `http://10.0.0.5:8000`). If the backend is on another host, use that host’s IP or DNS.
 
 ---
 

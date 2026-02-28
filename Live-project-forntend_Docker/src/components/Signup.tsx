@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import axios from "axios";
+import { API_BASE_URL } from "../config";
 
 const Signup = () => {
   const [form, setForm] = useState({ username: "", email: "", password: "" });
@@ -12,7 +13,7 @@ const Signup = () => {
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await axios.post("http://localhost:8000/signup", form);
+      const res = await axios.post(`${API_BASE_URL}/signup`, form);
       setMessage(res.data.message || "Signup successful!");
     } catch (err: any) {
       setMessage(err.response?.data?.detail || "Signup failed");

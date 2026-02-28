@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import axios from "axios";
+import { API_BASE_URL } from "../config";
 
 interface LoginProps {
   onLoginSuccess: () => void;
@@ -16,7 +17,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await axios.post("http://localhost:8000/login", form);
+      const res = await axios.post(`${API_BASE_URL}/login`, form);
       setMessage(res.data.message || "Login successful!");
       onLoginSuccess(); // Trigger the parent to update login state
     } catch (err: any) {
