@@ -6,7 +6,6 @@ on:
 jobs:
   scp-pem:
     runs-on: ubuntu-latest
-    # No environment needed - using repository secrets
 
     steps:
       - name: Setup SSH keys
@@ -17,12 +16,13 @@ jobs:
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          echo "$PUBLIC_SERVER" > public-server.pem
-          echo "$PRIVATE_SERVER" > private-server.pem
+          echo "$PUBLIC_SERVER" | sed 's/\\n/\n/g' > public-server.pem
+          echo "$PRIVATE_SERVER" | sed 's/\\n/\n/g' > private-server.pem
           chmod 600 public-server.pem private-server.pem
 
           echo "public-server.pem lines: $(wc -l < public-server.pem)"
           echo "private-server.pem lines: $(wc -l < private-server.pem)"
+          cat public-server.pem | head -1
           ssh-keygen -l -f public-server.pem
 
       - name: Add EC2 to known hosts
