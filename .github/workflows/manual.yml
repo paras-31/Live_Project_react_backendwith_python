@@ -17,24 +17,24 @@ jobs:
           chmod 700 ~/.ssh
 
           # Write public-server.pem (auth key)
-          printf '%s\n' "${{ secrets.PUBLIC_SERVER }}" > ~/.ssh/public-server.pem
-          chmod 600 ~/.ssh/public-server.pem
+          printf '%s\n' "${{ secrets.PUBLIC_SERVER }}" > public-server.pem
+          chmod 700 public-server.pem
 
           # Write private-server.pem (file to copy)
-          printf '%s\n' "${{ secrets.PRIVATE_SERVER }}" > /tmp/private-server.pem
-          chmod 600 /tmp/private-server.pem
+          printf '%s\n' "${{ secrets.PRIVATE_SERVER }}" > private-server.pem
+          chmod 700 private-server.pem
 
           # Validate the auth key
-          ssh-keygen -l -f ~/.ssh/public-server.pem
+          ssh-keygen -l -f public-server.pem
 
-      - name: Add EC2 to known hosts
-        run: |
-          ssh-keyscan -H ec2-44-220-83-30.compute-1.amazonaws.com >> ~/.ssh/known_hosts
+      # - name: Add EC2 to known hosts
+      #   run: |
+      #     ssh-keyscan -H ec2-44-220-83-30.compute-1.amazonaws.com >> ~/.ssh/known_hosts
 
       - name: SCP private-server.pem to EC2
         run: |
-          scp -i ~/.ssh/public-server.pem /tmp/private-server.pem ec2-user@ec2-44-220-83-30.compute-1.amazonaws.com:~/
+          scp -i public-server.pem private-server.pem ec2-user@ec2-44-220-83-30.compute-1.amazonaws.com:~/
 
       - name: Verify file copied
         run: |
-          ssh -i ~/.ssh/public-server.pem ec2-user@ec2-44-220-83-30.compute-1.amazonaws.com "ls -la ~/private-server.pem"
+          ssh -i public-server.pem ec2-user@ec2-44-220-83-30.compute-1.amazonaws.com "ls -la ~/private-server.pem"
