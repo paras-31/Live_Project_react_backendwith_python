@@ -1,4 +1,4 @@
-name: Work with private server
+name: Deploy Frontend & Backend to Private EC2
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 jobs:
-  scp-pem:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -18,27 +18,74 @@ jobs:
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          echo "$PUBLIC_SERVER" | sed 's/\\n/\n/g' > public-server.pem
-          echo "$PRIVATE_SERVER" | sed 's/\\n/\n/g' > private-server.pem
-          chmod 600 public-server.pem private-server.pem
+          echo "$PUBLIC_SERVER" | sed 's/\\n/\n/g' > ~/.ssh/public-server.pem
+          echo "$PRIVATE_SERVER" | sed 's/\\n/\n/g' > ~/.ssh/private-server.pem
+          chmod 600 ~/.ssh/public-server.pem ~/.ssh/private-server.pem
 
-          echo "public-server.pem lines: $(wc -l < public-server.pem)"
-          echo "private-server.pem lines: $(wc -l < private-server.pem)"
-          cat public-server.pem | head -1
-          ssh-keygen -l -f public-server.pem
-
-      - name: Add EC2 to known hosts
+      - name: Add public EC2 to known hosts
         run: |
           ssh-keyscan -H ec2-44-220-83-30.compute-1.amazonaws.com >> ~/.ssh/known_hosts
 
-      - name: login to public EC2
+      - name: Setup SSH config for ProxyJump
         run: |
-          ssh -i public-server.pem ec2-user@ec2-44-220-83-30.compute-1.amazonaws.com
-          
-      - name: login to private EC2
+          cat > ~/.ssh/config << 'SSHCONFIG'
+          Host public-ec2
+            HostName ec2-44-220-83-30.compute-1.amazonaws.com
+            User ec2-user
+            IdentityFile ~/.ssh/public-server.pem
+            StrictHostKeyChecking no
+
+          Host private-ec2
+            HostName 10.0.142.57
+            User ec2-user
+            IdentityFile ~/.ssh/private-server.pem
+            ProxyJump public-ec2
+            StrictHostKeyChecking no
+          SSHCONFIG
+          chmod 600 ~/.ssh/config
+
+      - name: Add private EC2 to known hosts via jump
         run: |
-          ssh -i "private-server.pem" ec2-user@10.0.142.57
-      - name: check the files in the private EC2
+          ssh-keyscan -H 10.0.142.57 -p 22 | ssh public-ec2 'cat >> ~/.ssh/known_hosts' || true
+          ssh -J public-ec2 -o StrictHostKeyChecking=no ec2-user@10.0.142.57 "echo '✅ Connected to private EC2'"
+
+      - name: Pull latest code on private EC2
         run: |
-          echo "Checking the files in the private EC2"
-          ls -la ./private-server.pem
+          ssh private-ec2 << 'ENDSSH'
+            set -e
+            echo "📂 Navigating to project..."
+            cd /home/ec2-user/Live_Project_react_backendwith_python
+            echo "📥 Pulling latest code..."
+            git pull origin main
+            echo "✅ Code updated"
+          ENDSSH
+
+      - name: Build & Run Frontend Docker
+        run: |
+          ssh private-ec2 << 'ENDSSH'
+            set -e
+            echo "🚀 Building Frontend..."
+            cd /home/ec2-user/Live_Project_react_backendwith_python/Live-project-forntend_Docker
+            docker build -t frontend-app .
+            docker stop frontend || true
+            docker rm frontend || true
+            docker run -d --name frontend -p 3000:3000 frontend-app
+            echo "✅ Frontend running"
+          ENDSSH
+
+      - name: Build & Run Backend Docker
+        run: |
+          ssh private-ec2 << 'ENDSSH'
+            set -e
+            echo "🚀 Building Backend..."
+            cd /home/ec2-user/Live_Project_react_backendwith_python/Live-project-backend_pyhton_doc
+            docker build -t backend-app .
+            docker stop backend || true
+            docker rm backend || true
+            docker run -d --name backend -p 8000:8000 backend-app
+            echo "✅ Backend running"
+          ENDSSH
+
+      - name: Verify containers running
+        run: |
+          ssh private-ec2 "docker ps"
