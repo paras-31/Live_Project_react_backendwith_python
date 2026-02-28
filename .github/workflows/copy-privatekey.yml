@@ -2,6 +2,8 @@ name: SCP private-server.pem to Public EC2
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
 
 jobs:
   scp-pem:
