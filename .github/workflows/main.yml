@@ -1,7 +1,9 @@
-name: work with private server
+name: Work with private server
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
 
 jobs:
   scp-pem:
@@ -39,5 +41,4 @@ jobs:
       - name: check the files in the private EC2
         run: |
           echo "Checking the files in the private EC2"
-          ls -la 
-          
+          ls -la ./private-server.pem
