@@ -6,7 +6,7 @@ on:
 jobs:
   scp-pem:
     runs-on: ubuntu-latest
-    environment: public-server.pem
+    # No environment needed - using repository secrets
 
     steps:
       - name: Setup SSH keys
@@ -18,14 +18,11 @@ jobs:
           chmod 700 ~/.ssh
 
           echo "$PUBLIC_SERVER" > public-server.pem
-          chmod 600 public-server.pem
-
           echo "$PRIVATE_SERVER" > private-server.pem
-          chmod 600 private-server.pem
+          chmod 600 public-server.pem private-server.pem
 
-          # Validate key and check file is not empty
-          wc -l public-server.pem
-          wc -l private-server.pem
+          echo "public-server.pem lines: $(wc -l < public-server.pem)"
+          echo "private-server.pem lines: $(wc -l < private-server.pem)"
           ssh-keygen -l -f public-server.pem
 
       - name: Add EC2 to known hosts
@@ -40,6 +37,6 @@ jobs:
         run: |
           scp -i public-server.pem private-server.pem ec2-user@ec2-44-220-83-30.compute-1.amazonaws.com:~/
 
-      - name: Verify file copied
+      - name: Verify file on EC2
         run: |
-          ssh -i public-server.pem ec2-user@ec2-44-220-83-30.compute-1.amazonaws.com "wc -l ~/private-server.pem && cat ~/private-server.pem | head -1 && cat ~/private-server.pem | tail -1"
+          ssh -i public-server.pem ec2-user@ec2-44-220-83-30.compute-1.amazonaws.com "wc -l ~/private-server.pem"
