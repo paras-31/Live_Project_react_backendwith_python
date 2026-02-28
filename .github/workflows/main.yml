@@ -1,0 +1,43 @@
+name: work with private server
+
+on:
+  workflow_dispatch:
+
+jobs:
+  scp-pem:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup SSH keys
+        env:
+          PUBLIC_SERVER: ${{ secrets.PUBLIC_SERVER }}
+          PRIVATE_SERVER: ${{ secrets.PRIVATE_SERVER }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          echo "$PUBLIC_SERVER" | sed 's/\\n/\n/g' > public-server.pem
+          echo "$PRIVATE_SERVER" | sed 's/\\n/\n/g' > private-server.pem
+          chmod 600 public-server.pem private-server.pem
+
+          echo "public-server.pem lines: $(wc -l < public-server.pem)"
+          echo "private-server.pem lines: $(wc -l < private-server.pem)"
+          cat public-server.pem | head -1
+          ssh-keygen -l -f public-server.pem
+
+      - name: Add EC2 to known hosts
+        run: |
+          ssh-keyscan -H ec2-44-220-83-30.compute-1.amazonaws.com >> ~/.ssh/known_hosts
+
+      - name: login to public EC2
+        run: |
+          ssh -i public-server.pem ec2-user@ec2-44-220-83-30.compute-1.amazonaws.com
+          
+      - name: login to private EC2
+        run: |
+          ssh -i "private-server.pem" ec2-user@10.0.142.57
+      - name: check the files in the private EC2
+        run: |
+          echo "Checking the files in the private EC2"
+          ls -la 
+          
