@@ -16,6 +16,7 @@ This repository is a full-stack project featuring a **React frontend** and a **P
   - [Connecting Frontend to Backend](#connecting-frontend-to-backend)
   - [How to Run the Frontend](#how-to-run-the-frontend)
 - [Docker Support](#docker-support)
+- [Deploying in Private Subnets (Cross-VPC RDS)](#deploying-in-private-subnets-cross-vpc-rds)
 - [Project Structure](#project-structure)
 
 ---
@@ -187,16 +188,125 @@ docker run -p 8000:8000 -e CORS_ORIGINS="http://<frontend-host>:80" live-backend
 
 ### 2. Frontend (API URL)
 
-Set **`VITE_API_URL`** at **build time** to the backend URL the browser will call (e.g. backend’s private IP or hostname and port):
+**Recommended for ALB deployments:** keep `VITE_API_URL` **unset** so production uses `API_BASE_URL = "/api"`.
+
+That makes the browser call the same origin it loaded the page from:
+
+- `http(s)://<your-alb-dns>/api/signup`
+- `http(s)://<your-alb-dns>/api/login`
+
+Then forward `/api/*` to the backend inside AWS (either via nginx proxy in the frontend container, or via ALB listener rules).
+
+Only set `VITE_API_URL` at build time if the backend is directly reachable from the user’s browser (public host/port), which is usually *not* the case for private subnets.
+
+Example (only if backend is publicly reachable):
 
 ```sh
 cd Live-project-forntend_Docker
-docker build --build-arg VITE_API_URL=http://<backend-ip-or-host>:8000 -t live-frontend .
+docker build --build-arg VITE_API_URL=http://<public-backend-host>:8000 -t live-frontend .
 ```
 
-If backend and frontend are on the **same EC2**, use that machine’s IP/hostname and port 8000 (e.g. `http://10.0.0.5:8000`). If the backend is on another host, use that host’s IP or DNS.
-
 ---
+
+## Deploying in Private Subnets (Cross-VPC RDS)
+
+This section describes a common AWS production setup:
+
+- The app (frontend nginx + backend FastAPI) runs in **VPC-A**, **private subnets** (EC2/ECS/EKS).
+- The database (RDS MySQL) runs in **VPC-B**, **private subnets**.
+- Users access the app via an **internet-facing ALB**.
+
+### High-level traffic flow
+
+If the frontend uses `API_BASE_URL = "/api"`, the ALB DNS appears in API calls because the browser sends requests back to the same host it loaded the page from.
+
+```mermaid
+sequenceDiagram
+   participant U as User Browser
+   participant ALB as ALB DNS
+   participant FE as Nginx Frontend (private)
+   participant BE as FastAPI Backend :8000 (private)
+   participant DB as RDS MySQL (VPC-B private)
+
+   U->>ALB: GET /
+   ALB->>FE: Forward to frontend target
+   FE-->>U: index.html + JS/CSS
+
+   U->>ALB: POST /api/signup
+   ALB->>FE: Forward to frontend target
+   FE->>BE: Proxy /api/signup -> /signup
+   BE->>DB: INSERT user (MySQL 3306)
+   DB-->>BE: OK
+   BE-->>U: 200/400 JSON
+```
+
+### Routing choices
+
+**Option A (common):** ALB forwards to frontend (nginx), nginx proxies `/api/*` to backend
+
+- Pros: simple; backend can keep routes as `/signup` and `/login`
+- Requirement: nginx config must include a `/api` proxy to the backend upstream
+
+**Option B:** ALB path-based routing
+
+- Listener rules route:
+   - `/` and static assets → frontend target group
+   - `/api/*` → backend target group
+- If you choose this, ensure the backend’s routes match what ALB forwards (for example mount backend under `/api`, or proxy/rewrite paths).
+
+### Cross-VPC connectivity (VPC-A ↔ VPC-B)
+
+To connect to a private RDS in another VPC, you need private network connectivity:
+
+- Use **VPC Peering** (simple) or **Transit Gateway** (scales to many VPCs).
+- Add **route table entries** in both VPCs:
+   - VPC-A private subnets route table: destination = VPC-B CIDR → target = peering connection / TGW
+   - VPC-B DB subnets route table: destination = VPC-A CIDR → target = peering connection / TGW
+- Enable DNS resolution across VPCs:
+   - For VPC peering, ensure **DNS resolution** is enabled on the peering connection so the RDS endpoint name resolves from VPC-A.
+
+### Security groups (minimum rules)
+
+1) Backend security group (VPC-A)
+
+- Inbound: allow `8000` from frontend/nginx security group (or from ALB security group if ALB routes directly to backend)
+- Outbound: allow `3306` to the RDS security group
+
+2) RDS security group (VPC-B)
+
+- Inbound: allow `3306` from the backend security group (preferred) or from VPC-A CIDR
+
+### Subnets and egress
+
+- ALB must be in **public subnets** (internet-facing)
+- Frontend + backend should be in **private subnets**
+- RDS should be in **private subnets**
+
+If instances in private subnets need outbound internet (package installs, pulling images), add a **NAT Gateway** or use **VPC endpoints** (for ECR/S3/CloudWatch).
+
+### App configuration (what to set)
+
+Backend container needs the RDS endpoint in `DATABASE_URL`:
+
+```bash
+export DATABASE_URL='mysql+mysqlconnector://<user>:<pass>@<rds-endpoint>:3306/<db_name>'
+```
+
+Frontend container:
+
+- Keep `VITE_API_URL` unset in production so it uses `/api`.
+- Ensure nginx (or ALB rules) forwards `/api/*` to the backend.
+
+### Common failure modes
+
+- Browser tries `http://<alb-dns>:8000/signup` and shows `Network Error`:
+   - Cause: production build set `VITE_API_URL` to `:8000`.
+   - Fix: rebuild frontend without `VITE_API_URL` (use `/api`) and proxy `/api` to backend.
+- Backend can’t reach RDS:
+   - Check peering/TGW routes in both directions
+   - Check RDS SG inbound `3306`
+   - Check backend SG outbound
+   - Confirm RDS is private (not publicly accessible)
 
 ## Project Structure
 
