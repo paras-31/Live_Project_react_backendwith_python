@@ -1,10 +1,11 @@
 # ---------- Stage 1: Build ----------
 FROM node:18-alpine AS builder
 
-# On EC2/ALB: pass your backend URL so login/signup work from the browser, e.g.:
-#   docker build --build-arg VITE_API_URL=http://appalb-721266216.us-east-1.elb.amazonaws.com:8000 -t live-frontend .
-ARG VITE_API_URL=http://appalb-721266216.us-east-1.elb.amazonaws.com:8000
-ENV VITE_API_URL=$VITE_API_URL
+# Optional: if your backend is on a different public host, pass it at build time:
+#   docker build --build-arg VITE_API_URL=https://api.example.com -t live-frontend .
+# If not provided, the app defaults to same-origin `/api` in production.
+ARG VITE_API_URL
+ENV VITE_API_URL=${VITE_API_URL}
 
 WORKDIR /app
 
