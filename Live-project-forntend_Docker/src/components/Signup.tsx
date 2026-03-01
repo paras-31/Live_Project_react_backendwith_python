@@ -16,7 +16,14 @@ const Signup = () => {
       const res = await axios.post(`${API_BASE_URL}/signup`, form);
       setMessage(res.data.message || "Signup successful!");
     } catch (err: any) {
-      setMessage(err.response?.data?.detail || "Signup failed");
+      const data = err?.response?.data;
+      const msg =
+        (typeof data === "string" && data) ||
+        data?.detail ||
+        data?.message ||
+        err?.message ||
+        "Signup failed";
+      setMessage(msg);
     }
   };
 

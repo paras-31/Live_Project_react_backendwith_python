@@ -1,7 +1,10 @@
 import os
-from fastapi import FastAPI, Depends, HTTPException
+
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+
 from database import SessionLocal, engine, Base
 from models import User
 from schemas import UserCreate, UserLogin
@@ -22,12 +25,19 @@ _default_origins = [
 _cors_env = os.getenv("CORS_ORIGINS", "").strip()
 origins = [o.strip() for o in _cors_env.split(",") if o.strip()] or _default_origins
 
+# If CORS_ORIGINS isn't provided, still allow common AWS ALB hostnames so
+# deployed frontends can call the backend on :8000 without manual env wiring.
+allow_origin_regex = None
+if not _cors_env:
+    allow_origin_regex = r"^https?://.*\\.amazonaws\\.com(?::\\d+)?$"
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],             # Allow all HTTP methods (POST, GET, etc.)
     allow_headers=["*"],             # Allow all headers
+    allow_origin_regex=allow_origin_regex,
 )
 
 # Dependency for DB session
@@ -40,13 +50,22 @@ def get_db():
 
 @app.post("/signup")
 def signup(user: UserCreate, db: Session = Depends(get_db)):
-    db_user = db.query(User).filter(User.email == user.email).first()
-    if db_user:
+    if db.query(User).filter(User.email == user.email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
+    if db.query(User).filter(User.username == user.username).first():
+        raise HTTPException(status_code=400, detail="Username already taken")
+
     hashed_pw = hash_password(user.password)
     new_user = User(username=user.username, email=user.email, password=hashed_pw)
     db.add(new_user)
-    db.commit()
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        # Covers race conditions / DB-level unique constraints.
+        raise HTTPException(status_code=400, detail="User already exists")
+
     db.refresh(new_user)
     return {"message": "User created successfully"}
 
